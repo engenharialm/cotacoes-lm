@@ -821,15 +821,31 @@ function interpretarProposta(linhas) {
   const shared = { fornecedor: "", dataCotacao: todayISO(), validade: "" };
 
   const site = texto.match(/(?:www\.|https?:\/\/(?:www\.)?)([a-z0-9-]+)\./i);
+  const linhaForn = linhas.map(String).find(l =>
+    /^[A-ZÀ-Ú][A-ZÀ-Ú .&-]+(DISTRIBUIDORA|ASFALTOS|ASFALTO|COMERCIO|COMÉRCIO|INDUSTRIA|INDÚSTRIA)[A-ZÀ-Ú .&-]*$/.test(l.trim()) && !/\bL\.?M\.?\b/.test(l));
+  const email = texto.match(/@([a-z0-9-]+)\./i);
   if (site) shared.fornecedor = site[1].replace(/-/g, " ").toUpperCase();
+  else if (linhaForn) shared.fornecedor = linhaForn.trim();
+  else if (email) shared.fornecedor = email[1].replace(/-/g, " ").toUpperCase();
 
   const d = texto.match(/(\d{1,2})\s+de\s+([A-Za-zÇç]+)\s+de\s+(\d{4})/i);
+  const d2 = texto.match(/Data:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
   if (d && MESES[d[2].toUpperCase()]) {
     shared.dataCotacao = `${d[3]}-${String(MESES[d[2].toUpperCase()]).padStart(2, "0")}-${d[1].padStart(2, "0")}`;
+  } else if (d2) {
+    shared.dataCotacao = `${d2[3]}-${d2[2]}-${d2[1]}`;
   }
   const v = texto.match(/Validade\s+da\s+Proposta:?\s*(\d{2})\/(\d{2})\/(\d{4})/i);
   if (v) shared.validade = `${v[3]}-${v[2]}-${v[1]}`;
+  else if (/v[aá]lida\s+durante\s+o\s+m[eê]s/i.test(texto)) {
+    const [yy, mm] = shared.dataCotacao.split("-").map(Number);
+    shared.validade = `${yy}-${String(mm).padStart(2, "0")}-${String(new Date(yy, mm, 0).getDate()).padStart(2, "0")}`;
+  }
   const prop = texto.match(/Proposta:\s*(\S+)/i);
+  const entrega = (texto.match(/Local\s+da\s+Entrega:?\s*(.+)/i) || [])[1]?.trim() || "";
+  const modalidadeTexto = /\bFOB\b/.test(texto) ? "FOB" : (/\bCIF\b/.test(texto) ? "CIF" : "");
+  const prazoHeader = (texto.match(/VALOR\s+PRODUTO\S*\s+(\d+\s*DIAS)/i) || [])[1]?.toUpperCase() || "";
+  const reLinhaB = /^\d+\s+(.+?)\s+(TON|T|M3|M³|UN|KG|SC|LT)\s+\d+(?:,\d+)?\s*%\s+R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2})\s+R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i;
 
   const reLinha = /^(.+?)\s+([A-ZÀ-Ú.'-]+\/[A-Z]{2})\s+(\d+)\s*KM\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+[\d,]+\s*%\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+[\d,]+\s*%\s+(.+)$/;
   const reDinheiro = /^\d{1,3}(?:\.\d{3})*,\d{2}$/;
@@ -844,13 +860,30 @@ function interpretarProposta(linhas) {
       const m = String(l).match(reLinha);
       if (m) r = { produto: m[1], proc: m[2], km: m[3], local: m[4], preco: m[5], frete: m[6], prazo: m[7] };
     }
-    if (!r) continue;
+    if (!r) {
+      const b = String(l).match(reLinhaB);
+      if (!b) continue;
+      const orig = b[1].trim().match(/^(.+?)\s+(\S+\s*\([A-Z]{2}\))$/);
+      items.push({
+        material: orig ? orig[1] : b[1].trim(),
+        cidade: entrega,
+        tipo: "",
+        modalidade: modalidadeTexto || "FOB",
+        valor: brNum(b[3]),
+        unidade: b[2].toLowerCase(),
+        frete: brNum(b[4]),
+        distanciaKm: null,
+        prazoPagamento: prazoHeader,
+        observacoes: [orig ? `Procedência: ${orig[2]}` : "", prop ? "Proposta " + prop[1] : ""].filter(Boolean).join(" | ")
+      });
+      continue;
+    }
     const prazo = (r.prazo.match(/^(A VISTA|\d+(?:\/\d+)*\s*DD)/i) || [""])[0].toUpperCase();
     items.push({
       material: r.produto.trim(),
       cidade: r.local.trim(),
       tipo: "",
-      modalidade: "CIF",
+      modalidade: modalidadeTexto || "CIF",
       valor: brNum(r.preco),
       unidade: "ton",
       frete: brNum(r.frete),
