@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cotações de Insumos — LM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#F3F6F8;
+    --bg-elev:#FFFFFF;
+    --card:#FFFFFF;
+    --card-hover:#EAF4F8;
+    --border:#DCE4EA;
+    --text:#1F2937;
+    --text-dim:#3F4A59;
+    --text-faint:#64748B;
+    --accent:#0B83B2;
+    --accent-light:#00A3DA;
+    --accent-dim:#DCEEF6;
+    --warning:#B45309;
+    --danger:#DC2626;
+    --info:#2563EB;
+    --lime:#4D7C0F;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Space Grotesk', sans-serif;min-height:100vh;}
+  a{color:inherit;text-decoration:none;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#C7D2DB;border-radius:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+
+  #app{display:flex;flex-direction:column;min-height:100vh;}
+
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 28px;border-bottom:1px solid var(--border);
+    background:var(--bg-elev);flex-wrap:wrap;gap:12px;position:sticky;top:0;z-index:50;
+  }
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand .logo{width:40px;height:40px;object-fit:contain;flex-shrink:0;}
+  .brand h1{font-size:1.05rem;font-weight:600;letter-spacing:.2px;color:var(--accent);}
+  .brand span{display:block;font-size:.72rem;color:var(--text-dim);font-weight:500;letter-spacing:.5px;}
+  .header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+
+  .status-pill{
+    display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--text-dim);
+    background:var(--card);border:1px solid var(--border);padding:6px 12px;border-radius:999px;
+  }
+  .status-dot{width:7px;height:7px;border-radius:50%;background:var(--warning);}
+  .status-pill.ok .status-dot{background:var(--accent);}
+
+  .btn{
+    border:none;border-radius:8px;padding:10px 16px;font-family:inherit;
+    font-weight:600;font-size:.82rem;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:.15s;
+  }
+  .btn-accent{background:var(--accent);color:#FFFFFF;}
+  .btn-accent:hover{background:#096A92;}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border);}
+  .btn-ghost:hover{background:var(--card-hover);border-color:var(--accent-light);}
+  .btn-sm{padding:6px 10px;font-size:.74rem;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+
+  main{flex:1;padding:24px 28px 60px;max-width:1500px;width:100%;margin:0 auto;}
+
+  .cards-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+  .card .label{font-size:.72rem;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .card .value{font-size:1.7rem;font-weight:700;margin-top:6px;}
+  .card .value.accent{color:var(--accent);}
+  .card .sub{font-size:.72rem;color:var(--text-faint);margin-top:4px;}
+
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);}
+  .toolbar input[type=text], .toolbar select{
+    background:var(--bg-elev);border:1px solid var(--border);color:var(--text);
+    padding:9px 12px;border-radius:8px;font-family:inherit;font-size:.8rem;
+  }
+  .toolbar input[type=text]{min-width:200px;flex:1;}
+  .toolbar select{cursor:pointer;}
+  .toolbar .spacer{flex:1;}
+  .toolbar-count{font-size:.75rem;color:var(--text-dim);white-space:nowrap;}
+
+  table{width:100%;border-collapse:collapse;font-size:.8rem;}
+  thead th{
+    text-align:left;padding:10px 14px;color:var(--text-faint);font-size:.68rem;text-transform:uppercase;
+    letter-spacing:.5px;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap;
+    position:sticky;top:0;background:var(--card);
+  }
+  thead th.sortable{cursor:pointer;user-select:none;}
+  thead th.sortable:hover{color:var(--accent);}
+  tbody td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  tbody tr:hover{background:var(--card-hover);}
+  tbody tr:last-child td{border-bottom:none;}
+  .table-wrap{overflow-x:auto;}
+  .muted{color:var(--text-faint);}
+
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.7rem;font-weight:700;white-space:nowrap;}
+  .badge.fob{background:rgba(37,99,235,.1);color:var(--info);}
+  .badge.cif{background:rgba(77,124,15,.1);color:var(--lime);}
+  .badge.venc{background:rgba(220,38,38,.1);color:var(--danger);}
+  .badge.valido{background:rgba(11,131,178,.12);color:var(--accent);}
+  .badge.semval{background:#E2E8F0;color:var(--text-dim);}
+
+  .row-actions{display:flex;gap:6px;justify-content:flex-end;}
+  .icon-btn{
+    width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;
+    color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.75rem;
+  }
+  .icon-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .icon-btn.del:hover{border-color:var(--danger);color:var(--danger);}
+
+  .empty-state{padding:50px 20px;text-align:center;color:var(--text-faint);font-size:.85rem;}
+
+  .section-title{font-size:.95rem;font-weight:700;margin:26px 0 12px;display:flex;align-items:center;justify-content:space-between;}
+
+  .modal-backdrop{
+    position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;
+    z-index:200;padding:20px;
+  }
+  .modal-backdrop.open{display:flex;}
+  .modal{background:var(--bg-elev);border:1px solid var(--border);border-radius:14px;width:100%;max-width:640px;max-height:88vh;overflow-y:auto;}
+  .modal-head{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+  .modal-head h2{font-size:1rem;font-weight:700;}
+  .modal-close{background:none;border:none;color:var(--text-dim);font-size:1.1rem;cursor:pointer;}
+  .modal-body{padding:20px 22px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .form-grid .full{grid-column:1/-1;}
+  .field label{display:block;font-size:.72rem;color:var(--text-dim);margin-bottom:6px;font-weight:600;}
+  .field input, .field select, .field textarea{
+    width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
+    padding:9px 11px;border-radius:8px;font-family:inherit;font-size:.82rem;
+  }
+  .field textarea{resize:vertical;min-height:60px;}
+  .modal-foot{padding:16px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;}
+
+  .modal-section-title{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);margin:18px 0 10px;}
+  .item-row{
+    position:relative;border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg);
+  }
+  .item-row .form-grid{gap:10px;}
+  .item-row-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .item-row-head .item-num{font-size:.72rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;}
+  .item-row .mi-del{
+    width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;
+    color:var(--text-dim);cursor:pointer;font-size:.75rem;flex-shrink:0;
+  }
+  .item-row .mi-del:hover{border-color:var(--danger);color:var(--danger);}
+  .btn-add-item{width:100%;justify-content:center;border:1px dashed var(--border);background:transparent;color:var(--accent);}
+  .btn-add-item:hover{background:var(--card-hover);border-color:var(--accent-light);}
+
+  .toast-wrap{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:300;}
+  .toast{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);
+    padding:12px 16px;border-radius:8px;font-size:.8rem;box-shadow:0 4px 16px rgba(0,0,0,.12);max-width:320px;}
+  .toast.error{border-left-color:var(--danger);}
+
+  @media (max-width:720px){
+    .form-grid{grid-template-columns:1fr;}
+    .table-wrap td:not(.name-cell){white-space:nowrap;}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <header>
+    <div class="brand">
+      <img class="logo" src="logo-lm.png" alt="LM">
+      <div>
+        <h1>Cotações de Insumos</h1>
+        <span>LM CONSTRUTORA — BANCO DE PREÇOS</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="status-pill" id="conn-status">
+        <span class="status-dot"></span>
+        <span id="conn-text">Modo local (este navegador)</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btn-export">Exportar Excel</button>
+      <button class="btn btn-accent" id="btn-add">+ Nova cotação</button>
+    </div>
+  </header>
+
+  <main>
+
+    <div class="cards-row" id="dash-cards"></div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <input type="text" id="f-busca" placeholder="Buscar por material, fornecedor, observação...">
+        <select id="f-material"><option value="">Todos os materiais</option></select>
+        <select id="f-tipo"><option value="">Todos os tipos</option></select>
+        <select id="f-cidade"><option value="">Todas as cidades</option></select>
+        <select id="f-modalidade">
+          <option value="">FOB/CIF (todos)</option>
+          <option value="FOB">FOB</option>
+          <option value="CIF">CIF</option>
+        </select>
+        <select id="f-validade">
+          <option value="">Validade (todas)</option>
+          <option value="validas">Somente válidas</option>
+          <option value="vencidas">Somente vencidas</option>
+        </select>
+        <div class="spacer"></div>
+        <span class="toolbar-count" id="cot-count"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="material">Material</th>
+              <th class="sortable" data-sort="tipo">Tipo</th>
+              <th class="sortable" data-sort="cidade">Cidade</th>
+              <th>FOB/CIF</th>
+              <th class="sortable" data-sort="fornecedor">Fornecedor</th>
+              <th class="sortable" data-sort="valor">Valor</th>
+              <th>Unidade</th>
+              <th class="sortable" data-sort="frete">Frete</th>
+              <th>KM</th>
+              <th>Prazo pagto</th>
+              <th class="sortable" data-sort="dataCotacao">Data</th>
+              <th>Validade</th>
+              <th>Observações</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="cot-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- MODAL: nova/editar cotação -->
+<div class="modal-backdrop" id="modal-cotacao">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-cotacao-title">Nova cotação</h2>
+      <button class="modal-close" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">Dados da proposta (valem pra todos os itens abaixo)</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Fornecedor</label>
+          <input type="text" id="c-fornecedor" list="dl-fornecedor" placeholder="Nome do fornecedor">
+          <datalist id="dl-fornecedor"></datalist>
+        </div>
+        <div class="field">
+          <label>Cidade *</label>
+          <input type="text" id="c-cidade" list="dl-cidade" placeholder="Cidade de origem/entrega">
+          <datalist id="dl-cidade"></datalist>
+        </div>
+        <div class="field">
+          <label>Data da cotação</label>
+          <input type="date" id="c-data">
+        </div>
+        <div class="field">
+          <label>Validade da cotação</label>
+          <input type="date" id="c-validade">
+        </div>
+      </div>
+
+      <div class="modal-section-title">Itens cotados</div>
+      <div id="item-rows"></div>
+      <button class="btn btn-sm btn-add-item" id="btn-add-item" type="button">+ Adicionar outro material/condição</button>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="modal-cotacao-hint" style="font-size:.75rem;"></span>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-accent" id="btn-salvar-cotacao">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<template id="tpl-item-row">
+  <div class="item-row">
+    <div class="item-row-head">
+      <span class="item-num"></span>
+      <button class="mi-del" type="button" title="Remover item">🗑</button>
+    </div>
+    <div class="form-grid">
+      <div class="field full">
+        <label>Material *</label>
+        <input type="text" class="it-material" list="dl-material" placeholder="Ex: CAP 50/70, Cimento CP-II, Aço CA-50...">
+      </div>
+      <div class="field">
+        <label>Tipo</label>
+        <input type="text" class="it-tipo" list="dl-tipo" placeholder="Ex: Material betuminoso, Agregado...">
+      </div>
+      <div class="field">
+        <label>FOB ou CIF *</label>
+        <select class="it-modalidade">
+          <option value="FOB">FOB — frete por conta do comprador</option>
+          <option value="CIF">CIF — frete incluso (fornecedor entrega)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Valor do produto (R$)</label>
+        <input type="number" class="it-valor" step="0.01" min="0" placeholder="0,00">
+      </div>
+      <div class="field">
+        <label>Unidade</label>
+        <input type="text" class="it-unidade" list="dl-unidade" placeholder="Ex: ton, m³, un, sc, kg...">
+      </div>
+      <div class="field">
+        <label>Frete (R$)</label>
+        <input type="number" class="it-frete" step="0.01" min="0" placeholder="0,00">
+      </div>
+      <div class="field">
+        <label>Distância (KM)</label>
+        <input type="number" class="it-km" step="1" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Prazo de pagamento</label>
+        <input type="text" class="it-prazo" list="dl-prazo" placeholder="Ex: A VISTA, 30 DD, 30/60 DD...">
+      </div>
+      <div class="field full">
+        <label>Observações</label>
+        <textarea class="it-obs" placeholder="Condição de entrega, anexo, detalhes específicos do item, etc."></textarea>
+      </div>
+    </div>
+  </div>
+</template>
+
+<datalist id="dl-material"></datalist>
+<datalist id="dl-tipo"></datalist>
+<datalist id="dl-unidade"></datalist>
+<datalist id="dl-prazo"></datalist>
+
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<script type="module">
+/* =========================================================================
+   Mesmo projeto Firebase do Controle LM (controle-lm), em uma coleção própria
+   ("cotacoes"), para já sincronizar entre computadores sem configuração extra.
+   ========================================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyDcNsjr0GdYPj70IF74G0hhhKc8qQ_jpkc",
+  authDomain: "lm-construtora-13c8f.firebaseapp.com",
+  projectId: "lm-construtora-13c8f",
+  storageBucket: "lm-construtora-13c8f.firebasestorage.app",
+  messagingSenderId: "384896887716",
+  appId: "1:384896887716:web:cfa633578043bda6a2af31"
+};
+
+const SITE_PASSWORD = "LM12";
+const ACTION_UNLOCK_KEY = "cotUnlocked";
+function requireUnlock() {
+  if (sessionStorage.getItem(ACTION_UNLOCK_KEY) === "true") return true;
+  const attempt = prompt("Digite a senha para fazer essa alteração:");
+  if (attempt === null) return false;
+  if (attempt === SITE_PASSWORD) { sessionStorage.setItem(ACTION_UNLOCK_KEY, "true"); return true; }
+  toast("Senha incorreta.", true);
+  return false;
+}
+
+const COL_NAME = "cotacoes";
+const LS_KEY = "cotacoesInsumosLM";
+
+let useFirebase = firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("COLE_AQUI");
+let db = null, fs = null;
+if (useFirebase) {
+  try {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const app = initializeApp(firebaseConfig);
+    db = fs.initializeFirestore(app, { experimentalAutoDetectLongPolling: true, useFetchStreams: false });
+  } catch (e) {
+    console.error("Falha ao iniciar Firebase, caindo para modo local:", e);
+    useFirebase = false;
+  }
+}
+
+function lsRead() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; }
+  catch { return []; }
+}
+function lsWrite(items) { localStorage.setItem(LS_KEY, JSON.stringify(items)); }
+
+function withTimeout(promiseFactory, ms = 20000) {
+  return Promise.race([
+    promiseFactory(),
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error("Conexão com o banco de dados demorou demais (mais de " + Math.round(ms/1000) + "s). Verifique sua internet/rede e tente novamente.")),
+      ms
+    ))
+  ]);
+}
+
+const store = {
+  async loadAll() {
+    if (useFirebase) {
+      return withTimeout(async () => {
+        const snap = await fs.getDocs(fs.query(fs.collection(db, COL_NAME), fs.orderBy("dataCotacao", "desc")));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      });
+    }
+    return lsRead().sort((a, b) => (b.dataCotacao || "").localeCompare(a.dataCotacao || ""));
+  },
+  async add(rec) {
+    if (useFirebase) {
+      return withTimeout(async () => {
+        const ref = await fs.addDoc(fs.collection(db, COL_NAME), rec);
+        return { id: ref.id, ...rec };
+      });
+    }
+    const items = lsRead();
+    const item = { id: "local-" + Date.now() + "-" + Math.random().toString(36).slice(2), ...rec };
+    items.push(item);
+    lsWrite(items);
+    return item;
+  },
+  async update(id, rec) {
+    if (useFirebase) {
+      return withTimeout(() => fs.updateDoc(fs.doc(db, COL_NAME, id), rec));
+    }
+    const items = lsRead();
+    const idx = items.findIndex(i => i.id === id);
+    if (idx >= 0) items[idx] = { ...items[idx], ...rec };
+    lsWrite(items);
+  },
+  async remove(id) {
+    if (useFirebase) {
+      return withTimeout(() => fs.deleteDoc(fs.doc(db, COL_NAME, id)));
+    }
+    lsWrite(lsRead().filter(i => i.id !== id));
+  }
+};
+
+function toast(msg, isError) {
+  const wrap = document.getElementById("toast-wrap");
+  const el = document.createElement("div");
+  el.className = "toast" + (isError ? " error" : "");
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function fmtDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return d && m && y ? `${d}/${m}/${y}` : iso;
+}
+function fmtMoney(v) {
+  if (v === undefined || v === null || v === "") return "";
+  return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+let cotacoes = [];
+let editingId = null;
+let sortKey = "dataCotacao";
+let sortDir = "desc";
+
+async function init() {
+  try {
+    cotacoes = await store.loadAll();
+    setConnStatus(true);
+  } catch (e) {
+    console.error(e);
+    toast(e.message || "Erro ao carregar cotações.", true);
+    setConnStatus(false);
+  }
+  renderAll();
+}
+
+function setConnStatus(ok) {
+  const pill = document.getElementById("conn-status");
+  const text = document.getElementById("conn-text");
+  if (!useFirebase) { text.textContent = "Modo local (este navegador)"; pill.classList.remove("ok"); return; }
+  pill.classList.toggle("ok", ok);
+  text.textContent = ok ? "Sincronizado (nuvem)" : "Falha de conexão";
+}
+
+function distinctValues(key) {
+  return [...new Set(cotacoes.map(c => c[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+function fillSelect(select, values, keepValue) {
+  const current = keepValue ?? select.value;
+  select.innerHTML = select.options[0].outerHTML + values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+  if (values.includes(current)) select.value = current;
+}
+
+function fillDatalist(id, values) {
+  document.getElementById(id).innerHTML = values.map(v => `<option value="${escapeHtml(v)}">`).join("");
+}
+
+function renderFilters() {
+  fillSelect(document.getElementById("f-material"), distinctValues("material"));
+  fillSelect(document.getElementById("f-tipo"), distinctValues("tipo"));
+  fillSelect(document.getElementById("f-cidade"), distinctValues("cidade"));
+  fillDatalist("dl-material", distinctValues("material"));
+  fillDatalist("dl-tipo", distinctValues("tipo"));
+  fillDatalist("dl-cidade", distinctValues("cidade"));
+  fillDatalist("dl-fornecedor", distinctValues("fornecedor"));
+  fillDatalist("dl-unidade", distinctValues("unidade"));
+  fillDatalist("dl-prazo", distinctValues("prazoPagamento"));
+}
+
+function getFiltered() {
+  const busca = document.getElementById("f-busca").value.trim().toLowerCase();
+  const fMaterial = document.getElementById("f-material").value;
+  const fTipo = document.getElementById("f-tipo").value;
+  const fCidade = document.getElementById("f-cidade").value;
+  const fModalidade = document.getElementById("f-modalidade").value;
+  const fValidade = document.getElementById("f-validade").value;
+  const hoje = todayISO();
+
+  let list = cotacoes.filter(c => {
+    if (fMaterial && c.material !== fMaterial) return false;
+    if (fTipo && c.tipo !== fTipo) return false;
+    if (fCidade && c.cidade !== fCidade) return false;
+    if (fModalidade && c.modalidade !== fModalidade) return false;
+    if (fValidade === "validas" && !(c.validade && c.validade >= hoje)) return false;
+    if (fValidade === "vencidas" && !(c.validade && c.validade < hoje)) return false;
+    if (busca) {
+      const hay = [c.material, c.fornecedor, c.observacoes, c.cidade, c.tipo].join(" ").toLowerCase();
+      if (!hay.includes(busca)) return false;
+    }
+    return true;
+  });
+
+  list.sort((a, b) => {
+    let av = a[sortKey], bv = b[sortKey];
+    if (sortKey === "valor" || sortKey === "frete") { av = Number(av) || 0; bv = Number(bv) || 0; }
+    else { av = (av || "").toString().toLowerCase(); bv = (bv || "").toString().toLowerCase(); }
+    if (av < bv) return sortDir === "asc" ? -1 : 1;
+    if (av > bv) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  return list;
+}
+
+function validadeBadge(c) {
+  if (!c.validade) return `<span class="badge semval">sem validade</span>`;
+  const vencida = c.validade < todayISO();
+  return `<span class="badge ${vencida ? "venc" : "valido"}">${fmtDate(c.validade)}</span>`;
+}
+
+function renderCards(list) {
+  const materiais = new Set(cotacoes.map(c => c.material).filter(Boolean)).size;
+  const fornecedores = new Set(cotacoes.map(c => c.fornecedor).filter(Boolean)).size;
+  const cidades = new Set(cotacoes.map(c => c.cidade).filter(Boolean)).size;
+  const hoje = todayISO();
+  const validas = cotacoes.filter(c => c.validade && c.validade >= hoje).length;
+
+  document.getElementById("dash-cards").innerHTML = `
+    <div class="card"><div class="label">Total de cotações</div><div class="value accent">${cotacoes.length}</div><div class="sub">registradas no banco</div></div>
+    <div class="card"><div class="label">Materiais distintos</div><div class="value">${materiais}</div><div class="sub">tipos de insumo cotados</div></div>
+    <div class="card"><div class="label">Fornecedores</div><div class="value">${fornecedores}</div><div class="sub">distintos no histórico</div></div>
+    <div class="card"><div class="label">Cidades</div><div class="value">${cidades}</div><div class="sub">de origem/entrega</div></div>
+    <div class="card"><div class="label">Cotações válidas hoje</div><div class="value" style="color:var(--lime);">${validas}</div><div class="sub">dentro do prazo de validade</div></div>
+  `;
+}
+
+function renderTable(list) {
+  const tbody = document.getElementById("cot-table");
+  document.getElementById("cot-count").textContent = `${list.length} cotação(ões)`;
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="14" class="empty-state">Nenhuma cotação encontrada.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(c => `
+    <tr>
+      <td>${escapeHtml(c.material)}</td>
+      <td class="muted">${escapeHtml(c.tipo || "—")}</td>
+      <td class="muted">${escapeHtml(c.cidade || "—")}</td>
+      <td><span class="badge ${c.modalidade === "CIF" ? "cif" : "fob"}">${escapeHtml(c.modalidade || "—")}</span></td>
+      <td class="muted">${escapeHtml(c.fornecedor || "—")}</td>
+      <td>${fmtMoney(c.valor)}</td>
+      <td class="muted">${escapeHtml(c.unidade || "—")}</td>
+      <td class="muted">${c.frete ? fmtMoney(c.frete) : "—"}</td>
+      <td class="muted">${c.distanciaKm ? c.distanciaKm + " km" : "—"}</td>
+      <td class="muted">${escapeHtml(c.prazoPagamento || "—")}</td>
+      <td class="muted">${fmtDate(c.dataCotacao) || "—"}</td>
+      <td>${validadeBadge(c)}</td>
+      <td class="muted" style="max-width:220px;white-space:normal;">${escapeHtml(c.observacoes || "")}</td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-edit="${c.id}" title="Editar">✎</button>
+          <button class="icon-btn del" data-del="${c.id}" title="Excluir">🗑</button>
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function renderAll() {
+  renderFilters();
+  const list = getFiltered();
+  renderCards(list);
+  renderTable(list);
+  updateSortHeaders();
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll("th.sortable").forEach(th => {
+    const key = th.dataset.sort;
+    th.textContent = th.textContent.replace(/ [▲▼]$/, "");
+    if (key === sortKey) th.textContent += sortDir === "asc" ? " ▲" : " ▼";
+  });
+}
+
+// -------------------------------------------------------------------------
+// Modal nova/editar cotação (dados da proposta + N itens)
+// -------------------------------------------------------------------------
+function itemFieldsFrom(row) {
+  return {
+    material: row.querySelector(".it-material").value.trim(),
+    tipo: row.querySelector(".it-tipo").value.trim(),
+    modalidade: row.querySelector(".it-modalidade").value,
+    valor: row.querySelector(".it-valor").value === "" ? null : Number(row.querySelector(".it-valor").value),
+    unidade: row.querySelector(".it-unidade").value.trim(),
+    frete: row.querySelector(".it-frete").value === "" ? null : Number(row.querySelector(".it-frete").value),
+    distanciaKm: row.querySelector(".it-km").value === "" ? null : Number(row.querySelector(".it-km").value),
+    prazoPagamento: row.querySelector(".it-prazo").value.trim(),
+    observacoes: row.querySelector(".it-obs").value.trim()
+  };
+}
+
+function addItemRow(data) {
+  const tpl = document.getElementById("tpl-item-row");
+  const frag = tpl.content.cloneNode(true);
+  const row = frag.querySelector(".item-row");
+  row.querySelector(".it-material").value = data?.material || "";
+  row.querySelector(".it-tipo").value = data?.tipo || "";
+  row.querySelector(".it-modalidade").value = data?.modalidade || "FOB";
+  row.querySelector(".it-valor").value = data?.valor ?? "";
+  row.querySelector(".it-unidade").value = data?.unidade || "";
+  row.querySelector(".it-frete").value = data?.frete ?? "";
+  row.querySelector(".it-km").value = data?.distanciaKm ?? "";
+  row.querySelector(".it-prazo").value = data?.prazoPagamento || "";
+  row.querySelector(".it-obs").value = data?.observacoes || "";
+  row.querySelector(".mi-del").addEventListener("click", () => {
+    const wrap = document.getElementById("item-rows");
+    if (wrap.children.length <= 1) { toast("A cotação precisa ter ao menos um item.", true); return; }
+    row.remove();
+    renumberItemRows();
+  });
+  document.getElementById("item-rows").appendChild(row);
+  renumberItemRows();
+}
+
+function renumberItemRows() {
+  document.querySelectorAll("#item-rows .item-row").forEach((row, i) => {
+    row.querySelector(".item-num").textContent = `Item ${i + 1}`;
+    row.querySelector(".mi-del").style.display = document.getElementById("item-rows").children.length <= 1 ? "none" : "";
+  });
+}
+
+function openModal(cot) {
+  editingId = cot ? cot.id : null;
+  document.getElementById("modal-cotacao-title").textContent = cot ? "Editar cotação" : "Nova cotação";
+  document.getElementById("modal-cotacao-hint").textContent = cot
+    ? ""
+    : "Dica: pra uma mesma proposta com vários produtos, adicione um item por material — fornecedor/cidade/data valem pra todos.";
+  document.getElementById("c-fornecedor").value = cot?.fornecedor || "";
+  document.getElementById("c-cidade").value = cot?.cidade || "";
+  document.getElementById("c-data").value = cot?.dataCotacao || todayISO();
+  document.getElementById("c-validade").value = cot?.validade || "";
+
+  document.getElementById("item-rows").innerHTML = "";
+  addItemRow(cot || null);
+  document.getElementById("btn-add-item").style.display = cot ? "none" : "";
+
+  document.getElementById("modal-cotacao").classList.add("open");
+  document.getElementById("c-fornecedor").focus();
+}
+function closeModal() {
+  document.getElementById("modal-cotacao").classList.remove("open");
+  editingId = null;
+}
+
+async function salvarCotacao() {
+  const cidade = document.getElementById("c-cidade").value.trim();
+  if (!cidade) { toast("Informe a cidade.", true); return; }
+
+  const rows = [...document.querySelectorAll("#item-rows .item-row")];
+  const items = rows.map(itemFieldsFrom);
+  const semMaterial = items.find(it => !it.material);
+  if (semMaterial) { toast("Informe o material em todos os itens.", true); return; }
+
+  if (!requireUnlock()) return;
+
+  const shared = {
+    fornecedor: document.getElementById("c-fornecedor").value.trim(),
+    cidade,
+    dataCotacao: document.getElementById("c-data").value || todayISO(),
+    validade: document.getElementById("c-validade").value || null
+  };
+
+  const btn = document.getElementById("btn-salvar-cotacao");
+  btn.disabled = true;
+  try {
+    if (editingId) {
+      const rec = { ...shared, ...items[0], updatedAt: Date.now() };
+      await store.update(editingId, rec);
+      const idx = cotacoes.findIndex(c => c.id === editingId);
+      if (idx >= 0) cotacoes[idx] = { ...cotacoes[idx], ...rec };
+      toast("Cotação atualizada.");
+    } else {
+      for (const it of items) {
+        const rec = { ...shared, ...it, createdAt: Date.now() };
+        const saved = await store.add(rec);
+        cotacoes.push(saved);
+      }
+      toast(items.length > 1 ? `${items.length} cotações adicionadas.` : "Cotação adicionada.");
+    }
+    closeModal();
+    renderAll();
+  } catch (e) {
+    console.error(e);
+    toast(e.message || "Erro ao salvar cotação.", true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function excluirCotacao(id) {
+  const cot = cotacoes.find(c => c.id === id);
+  if (!cot) return;
+  if (!confirm(`Excluir a cotação de "${cot.material}" (${cot.fornecedor || "sem fornecedor"})?`)) return;
+  if (!requireUnlock()) return;
+  try {
+    await store.remove(id);
+    cotacoes = cotacoes.filter(c => c.id !== id);
+    toast("Cotação excluída.");
+    renderAll();
+  } catch (e) {
+    console.error(e);
+    toast(e.message || "Erro ao excluir cotação.", true);
+  }
+}
+
+function exportarExcel() {
+  const list = getFiltered();
+  const rows = list.map(c => ({
+    Material: c.material,
+    Tipo: c.tipo || "",
+    Cidade: c.cidade || "",
+    "FOB/CIF": c.modalidade || "",
+    Fornecedor: c.fornecedor || "",
+    Valor: c.valor ?? "",
+    Unidade: c.unidade || "",
+    Frete: c.frete ?? "",
+    "Distância (KM)": c.distanciaKm ?? "",
+    "Prazo pagamento": c.prazoPagamento || "",
+    "Data da cotação": fmtDate(c.dataCotacao),
+    Validade: fmtDate(c.validade),
+    Observações: c.observacoes || ""
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Cotações");
+  XLSX.writeFile(wb, `cotacoes-insumos-${todayISO()}.xlsx`);
+  toast("Excel exportado.");
+}
+
+// -------------------------------------------------------------------------
+// Eventos
+// -------------------------------------------------------------------------
+document.getElementById("btn-add").addEventListener("click", () => openModal(null));
+document.getElementById("btn-export").addEventListener("click", exportarExcel);
+document.getElementById("btn-salvar-cotacao").addEventListener("click", salvarCotacao);
+document.getElementById("btn-add-item").addEventListener("click", () => addItemRow(null));
+
+document.querySelectorAll("[data-close]").forEach(el => el.addEventListener("click", closeModal));
+document.querySelectorAll(".modal-backdrop").forEach(backdrop => {
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) closeModal(); });
+});
+
+["f-busca","f-material","f-tipo","f-cidade","f-modalidade","f-validade"].forEach(id => {
+  document.getElementById(id).addEventListener("input", renderAll);
+});
+
+document.getElementById("cot-table").addEventListener("click", e => {
+  const editId = e.target.closest("[data-edit]")?.dataset.edit;
+  const delId = e.target.closest("[data-del]")?.dataset.del;
+  if (editId) openModal(cotacoes.find(c => c.id === editId));
+  if (delId) excluirCotacao(delId);
+});
+
+document.querySelectorAll("th.sortable").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (sortKey === key) sortDir = sortDir === "asc" ? "desc" : "asc";
+    else { sortKey = key; sortDir = "asc"; }
+    renderAll();
+  });
+});
+
+init();
+</script>
+</body>
+</html>
