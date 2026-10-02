@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root{
     --bg:#F3F6F8;
@@ -181,7 +182,9 @@
         <span class="status-dot"></span>
         <span id="conn-text">Modo local (este navegador)</span>
       </div>
+      <input type="file" id="file-pdf" accept="application/pdf,.pdf" style="display:none;">
       <button class="btn btn-ghost btn-sm" id="btn-export">Exportar Excel</button>
+      <button class="btn btn-accent" id="btn-import-pdf">📄 Importar PDF do fornecedor</button>
       <button class="btn btn-accent" id="btn-add">+ Nova cotação</button>
     </div>
   </header>
@@ -291,6 +294,10 @@
       <div class="field full">
         <label>Material *</label>
         <input type="text" class="it-material" list="dl-material" placeholder="Ex: CAP 50/70, Cimento CP-II, Aço CA-50...">
+      </div>
+      <div class="field full">
+        <label>Cidade / local de entrega (deixe vazio para usar a cidade da proposta)</label>
+        <input type="text" class="it-cidade" list="dl-cidade" placeholder="Só preencha se for diferente da cidade acima">
       </div>
       <div class="field">
         <label>Tipo</label>
@@ -621,6 +628,7 @@ function updateSortHeaders() {
 function itemFieldsFrom(row) {
   return {
     material: row.querySelector(".it-material").value.trim(),
+    cidade: row.querySelector(".it-cidade").value.trim(),
     tipo: row.querySelector(".it-tipo").value.trim(),
     modalidade: row.querySelector(".it-modalidade").value,
     valor: row.querySelector(".it-valor").value === "" ? null : Number(row.querySelector(".it-valor").value),
@@ -637,6 +645,7 @@ function addItemRow(data) {
   const frag = tpl.content.cloneNode(true);
   const row = frag.querySelector(".item-row");
   row.querySelector(".it-material").value = data?.material || "";
+  row.querySelector(".it-cidade").value = data?.cidade || "";
   row.querySelector(".it-tipo").value = data?.tipo || "";
   row.querySelector(".it-modalidade").value = data?.modalidade || "FOB";
   row.querySelector(".it-valor").value = data?.valor ?? "";
@@ -662,19 +671,21 @@ function renumberItemRows() {
   });
 }
 
-function openModal(cot) {
+function openModal(cot, prefill) {
   editingId = cot ? cot.id : null;
-  document.getElementById("modal-cotacao-title").textContent = cot ? "Editar cotação" : "Nova cotação";
+  document.getElementById("modal-cotacao-title").textContent = cot ? "Editar cotação" : (prefill ? "Conferir proposta importada" : "Nova cotação");
   document.getElementById("modal-cotacao-hint").textContent = cot
     ? ""
-    : "Dica: pra uma mesma proposta com vários produtos, adicione um item por material — fornecedor/cidade/data valem pra todos.";
-  document.getElementById("c-fornecedor").value = cot?.fornecedor || "";
-  document.getElementById("c-cidade").value = cot?.cidade || "";
-  document.getElementById("c-data").value = cot?.dataCotacao || todayISO();
-  document.getElementById("c-validade").value = cot?.validade || "";
+    : (prefill?.hint || "Dica: pra uma mesma proposta com vários produtos, adicione um item por material — fornecedor/cidade/data valem pra todos.");
+  const sh = prefill?.shared || cot || {};
+  document.getElementById("c-fornecedor").value = sh.fornecedor || "";
+  document.getElementById("c-cidade").value = sh.cidade || "";
+  document.getElementById("c-data").value = sh.dataCotacao || todayISO();
+  document.getElementById("c-validade").value = sh.validade || "";
 
   document.getElementById("item-rows").innerHTML = "";
-  addItemRow(cot || null);
+  const items = prefill?.items?.length ? prefill.items : [cot || null];
+  items.forEach(addItemRow);
   document.getElementById("btn-add-item").style.display = cot ? "none" : "";
 
   document.getElementById("modal-cotacao").classList.add("open");
@@ -686,19 +697,17 @@ function closeModal() {
 }
 
 async function salvarCotacao() {
-  const cidade = document.getElementById("c-cidade").value.trim();
-  if (!cidade) { toast("Informe a cidade.", true); return; }
+  const cidadePadrao = document.getElementById("c-cidade").value.trim();
 
   const rows = [...document.querySelectorAll("#item-rows .item-row")];
-  const items = rows.map(itemFieldsFrom);
-  const semMaterial = items.find(it => !it.material);
-  if (semMaterial) { toast("Informe o material em todos os itens.", true); return; }
+  const items = rows.map(itemFieldsFrom).map(it => ({ ...it, cidade: it.cidade || cidadePadrao }));
+  if (items.some(it => !it.material)) { toast("Informe o material em todos os itens.", true); return; }
+  if (items.some(it => !it.cidade)) { toast("Informe a cidade (da proposta ou de cada item).", true); return; }
 
   if (!requireUnlock()) return;
 
   const shared = {
     fornecedor: document.getElementById("c-fornecedor").value.trim(),
-    cidade,
     dataCotacao: document.getElementById("c-data").value || todayISO(),
     validade: document.getElementById("c-validade").value || null
   };
@@ -771,8 +780,119 @@ function exportarExcel() {
 }
 
 // -------------------------------------------------------------------------
+// Importar PDF do fornecedor
+// -------------------------------------------------------------------------
+const MESES = { JANEIRO:1, FEVEREIRO:2, MARCO:3, "MARÇO":3, ABRIL:4, MAIO:5, JUNHO:6, JULHO:7, AGOSTO:8, SETEMBRO:9, OUTUBRO:10, NOVEMBRO:11, DEZEMBRO:12 };
+
+async function pdfParaLinhas(file) {
+  if (!window.pdfjsLib) throw new Error("Leitor de PDF não carregou. Verifique a internet e recarregue a página.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const linhas = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const content = await (await pdf.getPage(p)).getTextContent();
+    const porY = new Map();
+    for (const it of content.items) {
+      if (!it.str.trim()) continue;
+      const y = Math.round(it.transform[5] / 3);
+      if (!porY.has(y)) porY.set(y, []);
+      porY.get(y).push({ x: it.transform[4], w: it.width, s: it.str.trim() });
+    }
+    [...porY.entries()].sort((a, b) => b[0] - a[0]).forEach(([, arr]) => {
+      arr.sort((a, b) => a.x - b.x);
+      const cells = [];
+      let fim = -Infinity;
+      for (const i of arr) {
+        if (cells.length && i.x - fim < 4) cells[cells.length - 1] += " " + i.s;
+        else cells.push(i.s);
+        fim = i.x + i.w;
+      }
+      const texto = arr.map(i => i.s).join(" ").replace(/\s+/g, " ");
+      linhas.push(Object.assign(new String(texto), { cells }));
+    });
+  }
+  return linhas;
+}
+
+function brNum(s) { return Number(String(s).replace(/\./g, "").replace(",", ".")); }
+
+function interpretarProposta(linhas) {
+  const texto = linhas.join("\n");
+  const shared = { fornecedor: "", dataCotacao: todayISO(), validade: "" };
+
+  const site = texto.match(/(?:www\.|https?:\/\/(?:www\.)?)([a-z0-9-]+)\./i);
+  if (site) shared.fornecedor = site[1].replace(/-/g, " ").toUpperCase();
+
+  const d = texto.match(/(\d{1,2})\s+de\s+([A-Za-zÇç]+)\s+de\s+(\d{4})/i);
+  if (d && MESES[d[2].toUpperCase()]) {
+    shared.dataCotacao = `${d[3]}-${String(MESES[d[2].toUpperCase()]).padStart(2, "0")}-${d[1].padStart(2, "0")}`;
+  }
+  const v = texto.match(/Validade\s+da\s+Proposta:?\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+  if (v) shared.validade = `${v[3]}-${v[2]}-${v[1]}`;
+  const prop = texto.match(/Proposta:\s*(\S+)/i);
+
+  const reLinha = /^(.+?)\s+([A-ZÀ-Ú.'-]+\/[A-Z]{2})\s+(\d+)\s*KM\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+[\d,]+\s*%\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+[\d,]+\s*%\s+(.+)$/;
+  const reDinheiro = /^\d{1,3}(?:\.\d{3})*,\d{2}$/;
+  const items = [];
+  for (const l of linhas) {
+    const c = [];
+    for (const s of l.cells || []) { if (s === "%" && c.length) c[c.length - 1] += " %"; else c.push(s); }
+    let r = null;
+    if (c.length >= 8 && /\/[A-Z]{2}$/.test(c[1]) && /^\d+\s*KM$/i.test(c[2]) && reDinheiro.test(c[4])) {
+      r = { produto: c[1 - 1], proc: c[1], km: c[2], local: c[3], preco: c[4], frete: c[6], prazo: c[8] || "" };
+    } else {
+      const m = String(l).match(reLinha);
+      if (m) r = { produto: m[1], proc: m[2], km: m[3], local: m[4], preco: m[5], frete: m[6], prazo: m[7] };
+    }
+    if (!r) continue;
+    const prazo = (r.prazo.match(/^(A VISTA|\d+(?:\/\d+)*\s*DD)/i) || [""])[0].toUpperCase();
+    items.push({
+      material: r.produto.trim(),
+      cidade: r.local.trim(),
+      tipo: "",
+      modalidade: "CIF",
+      valor: brNum(r.preco),
+      unidade: "ton",
+      frete: brNum(r.frete),
+      distanciaKm: parseInt(r.km, 10),
+      prazoPagamento: prazo,
+      observacoes: `Procedência: ${r.proc.trim()}${prop ? " | Proposta " + prop[1] : ""}`
+    });
+  }
+  return { shared, items };
+}
+
+async function importarPdf(file) {
+  toast("Lendo PDF...");
+  try {
+    const linhas = await pdfParaLinhas(file);
+    if (!linhas.length) { toast("Este PDF não tem texto selecionável (parece escaneado). Cadastre manualmente.", true); return; }
+    const { shared, items } = interpretarProposta(linhas);
+    if (!items.length) {
+      toast("Li o PDF, mas não reconheci a tabela de preços. Preencha manualmente (dados da proposta já foram sugeridos).", true);
+      openModal(null, { shared, items: [null], hint: "Tabela não reconhecida automaticamente neste modelo de PDF." });
+      return;
+    }
+    toast(`${items.length} linhas reconhecidas. Confira antes de salvar.`);
+    openModal(null, {
+      shared, items,
+      hint: "Importado do PDF. Confira valores, FOB/CIF (assumi CIF = preço com frete) e remova (🗑) as linhas que não quiser guardar."
+    });
+  } catch (e) {
+    console.error(e);
+    toast(e.message || "Erro ao ler o PDF.", true);
+  }
+}
+
+// -------------------------------------------------------------------------
 // Eventos
 // -------------------------------------------------------------------------
+document.getElementById("btn-import-pdf").addEventListener("click", () => document.getElementById("file-pdf").click());
+document.getElementById("file-pdf").addEventListener("change", e => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (f) importarPdf(f);
+});
 document.getElementById("btn-add").addEventListener("click", () => openModal(null));
 document.getElementById("btn-export").addEventListener("click", exportarExcel);
 document.getElementById("btn-salvar-cotacao").addEventListener("click", salvarCotacao);
